@@ -5,6 +5,9 @@
 1. Clone the project
 2. Run the following commands
 ```sh
+cd ./app-api
+```
+```sh
 py -m venv .venv
 ```
 ```sh
@@ -16,6 +19,10 @@ pip install -r requirements.txt
 ```sh
 flask db init
 ```
+```sh
+python app.py
+```
+
 
 # Important
 if you change any information in Database classes you have to run the following commands
@@ -27,4 +34,4 @@ flask db migrate -m "commit-message"
 flask db upgrade
 ```
 # Note
-<h3>If you have any extra tables(Classes) you have to remove them manually!</h3>
+<h3>If you added any extra tables(Classes) you have to remove them manually!</h3>

@@ -15,6 +15,9 @@ py -m venv .venv
 pip install -r requirements.txt
 ```
 ```sh
+pip install mysqlclient
+```
+```sh
 flask db init
 ```
 ```sh

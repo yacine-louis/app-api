@@ -28,6 +28,11 @@ flask db migrate -m "commit-message"
 flask db upgrade
 ```
 
+if you have any extra tables you can remove them manually
+or if you want to drop all tables run the following command:
+```sh
+flask reset-db
+```
 
 
 

@@ -1,10 +1,19 @@
-from flask import Flask
+from flask import Flask, jsonify 
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, MetaData, Table, TIMESTAMP, ForeignKey, Date, Text, Boolean
-from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
+
+from sqlalchemy import Column, Integer, String, MetaData, Table, TIMESTAMP, ForeignKey, Date, Text, Boolean
+
+from sqlalchemy import select
+from sqlalchemy.orm import relationship, Session, DeclarativeBase
+
+class Base(DeclarativeBase):
+    __abstract__ = True
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+db = SQLAlchemy(model_class=Base)
 
 # database config
 DB_USER = 'root'
@@ -18,357 +27,191 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = f'mysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_SECHEMA_NAME}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-db = SQLAlchemy(app)
-
-engine = create_engine(f'mysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_SECHEMA_NAME}')
+db.init_app(app)
 
 # migrate database
 migrate = Migrate(app, db)
 
 
 # Define Table Classes
-Base = declarative_base()
-
-class BaseModel(Base):
-    __abstract__ = True
-    created_at = Column(TIMESTAMP, default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-class Role(BaseModel):
+class Role(db.Model):
     __tablename__ = 'roles'
     
-    role_id = Column(Integer, primary_key=True, autoincrement=True)
-    role_name = Column(String(255), nullable=False)
-    permission_level = Column(Integer, nullable=False)
+    role_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    role_name = db.Column(db.String(64), nullable=False)
+    permission_level = db.Column(db.Integer, nullable=False)
     
-    users = relationship("User", back_populates="role")
-    
-    def to_dict(self):
-        return {
-            'role_id': self.role_id,
-            'role_name': self.role_name,
-            'permission_level': self.permission_level,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+    users = db.relationship('User', backref='role', lazy=True)
 
-class User(BaseModel):
+class User(db.Model):
     __tablename__ = 'users'
     
-    user_id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(255), nullable=False, unique=True)
-    password = Column(String(255), nullable=False)
-    role_id = Column(Integer, ForeignKey('roles.role_id'), nullable=False)
+    user_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    email = db.Column(db.String(255), nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.role_id'), nullable=False)
     
-    role = relationship("Role", back_populates="users")
-    student = relationship("Student", uselist=False, back_populates="user")
-    teacher = relationship("Teacher", uselist=False, back_populates="user")
-    staff = relationship("Staff", uselist=False, back_populates="user")
-    notifications = relationship("Notification", back_populates="user")
-    
-    def to_dict(self):
-        return {
-            'user_id': self.user_id,
-            'email': self.email,
-            'role_id': self.role_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+    teachers = db.relationship('Teacher', backref='user', lazy=True)
+    students = db.relationship('Student', backref='user', lazy=True)
+    staffs = db.relationship('Staff', backref='user', lazy=True)
+    notifications = db.relationship('Notification', backref='user', lazy=True)
 
-class Specialty(BaseModel):
+class Specialty(db.Model):
     __tablename__ = 'specialties'
     
-    speciality_id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(255), nullable=False)
-    education_level = Column(Integer, nullable=False)
+    speciality_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    education_level = db.Column(db.Integer, nullable=False)
     
-    sections = relationship("Section", back_populates="specialty")
-    students = relationship("Student", back_populates="specialty")
-    
-    def to_dict(self):
-        return {
-            'speciality_id': self.speciality_id,
-            'name': self.name,
-            'education_level': self.education_level,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+    sections = db.relationship('Section', backref='specialty', lazy=True)
+    students = db.relationship('Student', backref='specialty', lazy=True)
 
-class Section(BaseModel):
+class Section(db.Model):
     __tablename__ = 'sections'
     
-    section_id = Column(Integer, primary_key=True, autoincrement=True)
-    speciality_id = Column(Integer, ForeignKey('specialties.speciality_id'), nullable=False)
-    name = Column(String(255), nullable=False)
+    section_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    speciality_id = db.Column(db.Integer, db.ForeignKey('specialties.speciality_id'), nullable=False)
+    name = db.Column(db.String(64), nullable=False)
+    max_capacity = db.Column(db.Integer, nullable=False)
     
-    specialty = relationship("Specialty", back_populates="sections")
-    groups = relationship("Group", back_populates="section")
-    students = relationship("Student", back_populates="section")
-    teacher_sections = relationship("TeacherSection", back_populates="section")
-    section_change_requests = relationship("SectionChangeRequest", foreign_keys="[SectionChangeRequest.current_section_id]", back_populates="current_section")
-    requested_section_changes = relationship("SectionChangeRequest", foreign_keys="[SectionChangeRequest.requested_section_id]", back_populates="requested_section")
-    
-    def to_dict(self):
-        return {
-            'section_id': self.section_id,
-            'speciality_id': self.speciality_id,
-            'name': self.name,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+    groups = db.relationship('Group', backref='section', lazy=True)
+    students = db.relationship('Student', backref='section', lazy=True)
+    teacher_sections = db.relationship('TeacherSection', backref='section', lazy=True)
 
-class Group(BaseModel):
-    __tablename__ = 'groups'
-    
-    group_id = Column(Integer, primary_key=True, autoincrement=True)
-    section_id = Column(Integer, ForeignKey('sections.section_id'), nullable=False)
-    group_type = Column(String(255), nullable=False)
-    group_name = Column(String(255), nullable=False)
-    
-    section = relationship("Section", back_populates="groups")
-    teacher_groups = relationship("TeacherGroup", back_populates="group")
-    tutorial_students = relationship("Student", foreign_keys="[Student.tutorial_group_id]", back_populates="tutorial_group")
-    lab_students = relationship("Student", foreign_keys="[Student.lab_group_id]", back_populates="lab_group")
-    change_group_requests_current = relationship("ChangeGroupRequest", foreign_keys="[ChangeGroupRequest.current_group_id]", back_populates="current_group")
-    change_group_requests_requested = relationship("ChangeGroupRequest", foreign_keys="[ChangeGroupRequest.requested_group_id]", back_populates="requested_group")
-    
-    def to_dict(self):
-        return {
-            'group_id': self.group_id,
-            'section_id': self.section_id,
-            'group_type': self.group_type,
-            'group_name': self.group_name,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
-
-class Staff(BaseModel):
-    __tablename__ = 'staffs'
-    
-    staff_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
-    first_name = Column(String(255), nullable=False)
-    last_name = Column(String(255), nullable=False)
-    grade = Column(String(255), nullable=False)
-    
-    user = relationship("User", back_populates="staff")
-    requests = relationship("Request", back_populates="staff")
-    
-    def to_dict(self):
-        return {
-            'staff_id': self.staff_id,
-            'user_id': self.user_id,
-            'first_name': self.first_name,
-            'last_name': self.last_name,
-            'grade': self.grade,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
-
-class Teacher(BaseModel):
+class Teacher(db.Model):
     __tablename__ = 'teachers'
     
-    teacher_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
-    first_name = Column(String(255), nullable=False)
-    last_name = Column(String(255), nullable=False)
-    grade = Column(String(255), nullable=False)
+    teacher_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    first_name = db.Column(db.String(64), nullable=False)
+    last_name = db.Column(db.String(64), nullable=False)
+    grade = db.Column(db.String(128), nullable=False)
     
-    user = relationship("User", back_populates="teacher")
-    teacher_sections = relationship("TeacherSection", back_populates="teacher")
-    teacher_groups = relationship("TeacherGroup", back_populates="teacher")
-    
-    def to_dict(self):
-        return {
-            'teacher_id': self.teacher_id,
-            'user_id': self.user_id,
-            'first_name': self.first_name,
-            'last_name': self.last_name,
-            'grade': self.grade,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+    teacher_sections = db.relationship('TeacherSection', backref='teacher', lazy=True)
+    teacher_groups = db.relationship('TeacherGroup', backref='teacher', lazy=True)
 
-class Student(BaseModel):
+class Group(db.Model):
+    __tablename__ = 'groups'
+    
+    group_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    section_id = db.Column(db.Integer, db.ForeignKey('sections.section_id'), nullable=False)
+    group_type = db.Column(db.String(64), nullable=False)
+    group_name = db.Column(db.String(64), nullable=False)
+    max_capacity = db.Column(db.Integer, nullable=False)
+    
+    students_tutorial = db.relationship('Student', foreign_keys='Student.tutorial_group_id', backref='tutorial_group', lazy=True)
+    students_lab = db.relationship('Student', foreign_keys='Student.lab_group_id', backref='lab_group', lazy=True)
+    teacher_groups = db.relationship('TeacherGroup', backref='group', lazy=True)
+    change_group_requests_current = db.relationship('ChangeGroupRequest', foreign_keys='ChangeGroupRequest.current_group_id', backref='current_group', lazy=True)
+    change_group_requests_requested = db.relationship('ChangeGroupRequest', foreign_keys='ChangeGroupRequest.requested_group_id', backref='requested_group', lazy=True)
+
+class Student(db.Model):
     __tablename__ = 'students'
     
-    student_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
-    matricule = Column(String(255), nullable=False)
-    first_name = Column(String(255), nullable=False)
-    last_name = Column(String(255), nullable=False)
-    birth_date = Column(Date, nullable=False)
-    nationality = Column(String(255), nullable=False)
-    gender = Column(String(255), nullable=False)
-    disability = Column(Boolean, nullable=False)
-    phone_number = Column(String(255), nullable=False)
-    observation = Column(String(255), nullable=False)
-    specialty_id = Column(Integer, ForeignKey('specialties.speciality_id'), nullable=False)
-    section_id = Column(Integer, ForeignKey('sections.section_id'), nullable=False)
-    tutorial_group_id = Column(Integer, ForeignKey('groups.group_id'), nullable=False)
-    lab_group_id = Column(Integer, ForeignKey('groups.group_id'), nullable=False)
+    student_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    matricule = db.Column(db.String(255), nullable=False)
+    first_name = db.Column(db.String(64), nullable=False)
+    last_name = db.Column(db.String(64), nullable=False)
+    birth_date = db.Column(db.Date, nullable=False)
+    nationality = db.Column(db.String(64), nullable=False)
+    gender = db.Column(db.String(64), nullable=False)
+    disability = db.Column(db.Boolean, nullable=False)
+    phone_number = db.Column(db.String(64), nullable=False)
+    observation = db.Column(db.String(255), nullable=False)
+    specialty_id = db.Column(db.Integer, db.ForeignKey('specialties.speciality_id'), nullable=False)
+    section_id = db.Column(db.Integer, db.ForeignKey('sections.section_id'), nullable=False)
+    tutorial_group_id = db.Column(db.Integer, db.ForeignKey('groups.group_id'), nullable=False)
+    lab_group_id = db.Column(db.Integer, db.ForeignKey('groups.group_id'), nullable=False)
     
-    user = relationship("User", back_populates="student")
-    specialty = relationship("Specialty", back_populates="students")
-    section = relationship("Section", back_populates="students")
-    tutorial_group = relationship("Group", foreign_keys=[tutorial_group_id], back_populates="tutorial_students")
-    lab_group = relationship("Group", foreign_keys=[lab_group_id], back_populates="lab_students")
-    requests = relationship("Request", back_populates="student")
-    
-    def to_dict(self):
-        return {
-            'student_id': self.student_id,
-            'user_id': self.user_id,
-            'matricule': self.matricule,
-            'first_name': self.first_name,
-            'last_name': self.last_name,
-            'full_name': f"{self.first_name} {self.last_name}",
-            'birth_date': self.birth_date.isoformat() if self.birth_date else None,
-            'nationality': self.nationality,
-            'gender': self.gender,
-            'disability': self.disability,
-            'phone_number': self.phone_number,
-            'observation': self.observation,
-            'specialty_id': self.specialty_id,
-            'section_id': self.section_id,
-            'tutorial_group_id': self.tutorial_group_id,
-            'lab_group_id': self.lab_group_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+    requests = db.relationship('Request', backref='student', lazy=True)
+    swap_group_requests_current = db.relationship('SwapGroupRequest', foreign_keys='SwapGroupRequest.current_student_id', backref='current_student', lazy=True)
+    swap_group_requests_requested = db.relationship('SwapGroupRequest', foreign_keys='SwapGroupRequest.requested_student_id', backref='requested_student', lazy=True)
+    swap_section_requests_current = db.relationship('SwapSectionRequest', foreign_keys='SwapSectionRequest.current_student_id', backref='current_student', lazy=True)
+    swap_section_requests_requested = db.relationship('SwapSectionRequest', foreign_keys='SwapSectionRequest.requested_student_id', backref='requested_student', lazy=True)
 
-class TeacherSection(BaseModel):
+class Staff(db.Model):
+    __tablename__ = 'staffs'
+    
+    staff_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    first_name = db.Column(db.String(64), nullable=False)
+    last_name = db.Column(db.String(64), nullable=False)
+    grade = db.Column(db.String(128), nullable=False)
+
+class TeacherSection(db.Model):
     __tablename__ = 'teacher_sections'
     
-    teacher_section_id = Column(Integer, primary_key=True, autoincrement=True)
-    teacher_id = Column(Integer, ForeignKey('teachers.teacher_id'), nullable=False)
-    section_id = Column(Integer, ForeignKey('sections.section_id'), nullable=False)
-    
-    teacher = relationship("Teacher", back_populates="teacher_sections")
-    section = relationship("Section", back_populates="teacher_sections")
-    
-    def to_dict(self):
-        return {
-            'teacher_section_id': self.teacher_section_id,
-            'teacher_id': self.teacher_id,
-            'section_id': self.section_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+    teacher_section_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    teacher_id = db.Column(db.Integer, db.ForeignKey('teachers.teacher_id'), nullable=False)
+    section_id = db.Column(db.Integer, db.ForeignKey('sections.section_id'), nullable=False)
 
-class TeacherGroup(BaseModel):
+class TeacherGroup(db.Model):
     __tablename__ = 'teacher_groups'
     
-    teacher_groups_id = Column(Integer, primary_key=True, autoincrement=True)
-    teacher_id = Column(Integer, ForeignKey('teachers.teacher_id'), nullable=False)
-    group_id = Column(Integer, ForeignKey('groups.group_id'), nullable=False)
-    
-    teacher = relationship("Teacher", back_populates="teacher_groups")
-    group = relationship("Group", back_populates="teacher_groups")
-    
-    def to_dict(self):
-        return {
-            'teacher_groups_id': self.teacher_groups_id,
-            'teacher_id': self.teacher_id,
-            'group_id': self.group_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+    teacher_groups_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    teacher_id = db.Column(db.Integer, db.ForeignKey('teachers.teacher_id'), nullable=False)
+    group_id = db.Column(db.Integer, db.ForeignKey('groups.group_id'), nullable=False)
 
-class Request(BaseModel):
+class Request(db.Model):
     __tablename__ = 'requests'
     
-    request_id = Column(Integer, primary_key=True, autoincrement=True)
-    staff_id = Column(Integer, ForeignKey('staffs.staff_id'), nullable=False)
-    student_id = Column(Integer, ForeignKey('students.student_id'), nullable=False)
-    status = Column(String(255), nullable=False)
-    reason = Column(Text, nullable=False)
+    request_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    student_id = db.Column(db.Integer, db.ForeignKey('students.student_id'), nullable=False)
+    status = db.Column(db.String(64), nullable=False)
+    reason = db.Column(db.Text, nullable=False)
     
-    staff = relationship("Staff", back_populates="requests")
-    student = relationship("Student", back_populates="requests")
-    change_group_request = relationship("ChangeGroupRequest", uselist=False, back_populates="request")
-    section_change_request = relationship("SectionChangeRequest", uselist=False, back_populates="request")
-    
-    def to_dict(self):
-        return {
-            'request_id': self.request_id,
-            'staff_id': self.staff_id,
-            'student_id': self.student_id,
-            'status': self.status,
-            'reason': self.reason,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+    change_group_requests = db.relationship('ChangeGroupRequest', backref='request', lazy=True)
+    section_change_requests = db.relationship('SectionChangeRequest', backref='request', lazy=True)
+    swap_group_requests = db.relationship('SwapGroupRequest', backref='request', lazy=True)
+    swap_section_requests = db.relationship('SwapSectionRequest', backref='request', lazy=True)
 
-class ChangeGroupRequest(BaseModel):
+class ChangeGroupRequest(db.Model):
     __tablename__ = 'change_group_requests'
     
-    change_group_request_id = Column(Integer, primary_key=True, autoincrement=True)
-    request_id = Column(Integer, ForeignKey('requests.request_id'), nullable=False)
-    current_group_id = Column(Integer, ForeignKey('groups.group_id'), nullable=False)
-    requested_group_id = Column(Integer, ForeignKey('groups.group_id'), nullable=False)
-    
-    request = relationship("Request", back_populates="change_group_request")
-    current_group = relationship("Group", foreign_keys=[current_group_id], back_populates="change_group_requests_current")
-    requested_group = relationship("Group", foreign_keys=[requested_group_id], back_populates="change_group_requests_requested")
-    
-    def to_dict(self):
-        return {
-            'change_group_request_id': self.change_group_request_id,
-            'request_id': self.request_id,
-            'current_group_id': self.current_group_id,
-            'requested_group_id': self.requested_group_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+    change_group_request_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    request_id = db.Column(db.Integer, db.ForeignKey('requests.request_id'), nullable=False)
+    current_group_id = db.Column(db.Integer, db.ForeignKey('groups.group_id'), nullable=False)
+    requested_group_id = db.Column(db.Integer, db.ForeignKey('groups.group_id'), nullable=False)
 
-class SectionChangeRequest(BaseModel):
+class SectionChangeRequest(db.Model):
     __tablename__ = 'section_change_requests'
     
-    section_change_request_id = Column(Integer, primary_key=True, autoincrement=True)
-    request_id = Column(Integer, ForeignKey('requests.request_id'), nullable=False)
-    current_section_id = Column(Integer, ForeignKey('sections.section_id'), nullable=False)
-    requested_section_id = Column(Integer, ForeignKey('sections.section_id'), nullable=False)
-    
-    request = relationship("Request", back_populates="section_change_request")
-    current_section = relationship("Section", foreign_keys=[current_section_id], back_populates="section_change_requests")
-    requested_section = relationship("Section", foreign_keys=[requested_section_id], back_populates="requested_section_changes")
-    
-    def to_dict(self):
-        return {
-            'section_change_request_id': self.section_change_request_id,
-            'request_id': self.request_id,
-            'current_section_id': self.current_section_id,
-            'requested_section_id': self.requested_section_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
+    section_change_request_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    request_id = db.Column(db.Integer, db.ForeignKey('requests.request_id'), nullable=False)
+    current_section_id = db.Column(db.Integer, db.ForeignKey('sections.section_id'), nullable=False)
+    requested_section_id = db.Column(db.Integer, db.ForeignKey('sections.section_id'), nullable=False)
 
-class Notification(BaseModel):
+class Notification(db.Model):
     __tablename__ = 'notifications'
     
-    notification_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
-    title = Column(String(255), nullable=False)
-    message = Column(Text, nullable=False)
-    notification_type = Column(String(255), nullable=False)
-    is_read = Column(Boolean, nullable=False)
+    notification_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    notification_type = db.Column(db.String(128), nullable=False)
+    is_read = db.Column(db.Boolean, nullable=False)
+
+class SwapGroupRequest(db.Model):
+    __tablename__ = 'swap_group_requests'
     
-    user = relationship("User", back_populates="notifications")
+    swap_group_request_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    request_id = db.Column(db.Integer, db.ForeignKey('requests.request_id'), nullable=False)
+    current_student_id = db.Column(db.Integer, db.ForeignKey('students.student_id'), nullable=False)
+    requested_student_id = db.Column(db.Integer, db.ForeignKey('students.student_id'), nullable=False)
+
+class SwapSectionRequest(db.Model):
+    __tablename__ = 'swap_section_requests'
     
-    def to_dict(self):
-        return {
-            'notification_id': self.notification_id,
-            'user_id': self.user_id,
-            'title': self.title,
-            'message': self.message,
-            'notification_type': self.notification_type,
-            'is_read': self.is_read,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
-    
-Base.metadata.create_all(engine)
+    swap_section_request_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    request_id = db.Column(db.Integer, db.ForeignKey('requests.request_id'), nullable=False)
+    current_student_id = db.Column(db.Integer, db.ForeignKey('students.student_id'), nullable=False)
+    requested_student_id = db.Column(db.Integer, db.ForeignKey('students.student_id'), nullable=False)
+
+
+
+
+
 
 
 
@@ -376,6 +219,97 @@ Base.metadata.create_all(engine)
 @app.route('/')
 def add():
     return "test"
+
+
+
+# =========================
+# Roles ROUTES
+# ========================
+    
+
+
+@app.route('/roles', methods=["GET"])
+def get_roles():
+    roles = Role.query.all()
+    return jsonify([role.to_dict() for role in roles])
+
+@app.route('/roles/<int:role_id>', methods=["GET"])
+def get_role(role_id):
+    role = Role.query.get(role_id)
+    if role:
+        return jsonify(role.to_dict())
+    else:
+        return jsonify({"error": "role not found"}), 404
+    
+@app.route('/roles', methods=["POST"])
+def add_role():
+    """
+        REQUEST FORM:
+        {
+            "role_name": "Staff",
+            "permission_level": 3,
+        }
+        
+        RETURN FORM:
+        {
+            'role_id': self.role_id,
+            'role_name': "Staff",
+            'permission_level': 3,
+        }
+    """
+    data = request.get_json()
+    
+    new_role = Role(role_name=data["role_name"], permission_level=data["permission_level"])
+    db.session.add(new_role)
+    db.session.commit()
+    
+    return jsonify(new_role.to_dict()), 201
+
+@app.route('/roles/<int:role_id>', methods=["PUT"])
+def update_role(role_id):
+    """
+        REQUEST FORM:
+        {
+            "role_name": "Staff",
+            "permission_level": 3,
+        }
+        
+        RETURN FORM:
+        {
+            'role_id': self.role_id,
+            'role_name': "Staff",
+            'permission_level': 3,
+        }
+        
+        ERROR:
+        {
+            "error": "role not found"
+        }
+    """
+    data = request.get_json()
+    role = Role.query.get(role_id)
+    
+    if role:
+        role.role_name = data.get("role_name", role.role_name)
+        role.permission_level = data.get("permission_level", role.permission_level)
+        db.session.commit()
+        return jsonify(role.to_dict())
+    else:
+        return jsonify({"error": "role not found"}), 404
+    
+@app.route('/roles/<int:role_id>', methods=["DELETE"])
+def delete_role(role_id):
+    role = Role.query.get(role_id)
+    if role:
+        db.session.delete(role)
+        db.session.commit()
+        return jsonify({"message": "role deleted succesfully"})
+    else:
+        return jsonify({"error": "role not found"}), 404
+    
+    
+    
+
 
 
 
@@ -394,5 +328,7 @@ def add():
 
 
 # don't touch this
+with app.app_context():
+    db.create_all()
 if __name__ == '__main__':
     app.run()

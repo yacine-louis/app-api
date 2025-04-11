@@ -29,7 +29,7 @@ python app.py
 if you change any information in Database classes you have to run the following commands
 
 ```sh
-flask db migrate -m "commit-message"
+flask db migrate
 ```
 ```sh
 flask db upgrade

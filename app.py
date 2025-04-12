@@ -7,8 +7,7 @@ from sqlalchemy import Column, Integer, String, MetaData, Table, TIMESTAMP, Fore
 from sqlalchemy import select
 from sqlalchemy.orm import relationship, Session, DeclarativeBase
 
-from resources.auth import hash_password, check_password
-from resources.validation import check_required_fields, check_unique_field, validate_positive_integer, validate_email_format, validate_password_length, run_validations
+from resources.validation import hash_password, check_password, check_required_fields, check_unique_field, validate_positive_integer, validate_email_format, validate_password_length, check_valid_date, run_validations
 
 class Base(DeclarativeBase):
     __abstract__ = True
@@ -238,18 +237,18 @@ class Student(db.Model):
             }), 400
             
         # check if valid group_td within the section
-        group_td = db.session.execute(db.select(Group).filter_by(group_type="TD", group_id=data["tutorial_group_id"]), section_id=data["section_id"]).first()
+        group_td = db.session.execute(db.select(Group).filter_by(group_type="TD", group_id=data["tutorial_group_id"], section_id=data["section_id"])).first()
         if not group_td:
             return jsonify({
                 "error": "Invalid group TD"
-            })
+            }), 400
             
         # check if valid group_tp within the section
-        group_tp = db.session.execute(db.select(Group).filter_by(group_type="TP", group_id=data["lab_group_id"]), section_id=data["section_id"]).first()
-        if not group_td:
+        group_tp = db.session.execute(db.select(Group).filter_by(group_type="TP", group_id=data["lab_group_id"], section_id=data["section_id"])).first()
+        if not group_tp:
             return jsonify({
                 "error": "Invalid group TP"
-            })
+            }), 400
         
         return None
         
@@ -446,8 +445,10 @@ class SwapSectionRequest(db.Model):
 
 # define routes
 @app.route('/')
-def add():
-    return "test"
+def test():
+    return jsonify({
+        "message": "Hello World!"
+    })
 
 
 
@@ -513,6 +514,11 @@ def update_role(role_id):
     if error:
         return error
     
+    if role.protected:
+        return jsonify({
+            "error": "Can't modify protected role"
+        }), 403
+    
     # update
     role.role_name = data["role_name"]
     role.permission_level = data["permission_level"]
@@ -531,7 +537,11 @@ def delete_role(role_id):
 
     if role.protected:
         return jsonify({"error": "This role cannot be deleted"}), 403
-
+    
+    user = db.session.execute(db.select(User).filter_by(role_id=role_id)).first()
+    if user:
+        return jsonify({"error": "Cannot delete role with assigned users"}), 403
+    
     db.session.delete(role)
     db.session.commit()
     return jsonify({"message": "Role deleted successfully"}), 200
@@ -541,10 +551,41 @@ def delete_role(role_id):
 # =========================
 # Speciality ROUTES
 # =========================
-@app.route('/specialities', methods = ["GET"])
+@app.route('/specialities', methods=["GET"])
 def get_specialities():
-    specialities = Speciality.query.all()
-    return jsonify([speciality.to_dict() for speciality in specialities])
+    # Get query parameters
+    page = request.args.get('page', default=1, type=int)
+    per_page = request.args.get('per_page', default=10, type=int)
+    name_filter = request.args.get('name')
+    level_filter = request.args.get('level', type=int)
+    
+    # Base query
+    query = Speciality.query
+    
+    # Apply filters
+    if name_filter:
+        query = query.filter(Speciality.name.ilike(f'%{name_filter}%'))
+    if level_filter:
+        query = query.filter(Speciality.education_level == level_filter)
+    
+    # Pagination
+    paginated_specialities = query.paginate(
+        page=page,
+        per_page=per_page,
+    )
+    
+    # Prepare response
+    specialities_data = [speciality.to_dict() for speciality in paginated_specialities.items]
+    
+    return jsonify({
+        'data': specialities_data,
+        'pagination': {
+            'total': paginated_specialities.total,
+            'pages': paginated_specialities.pages,
+            'current_page': paginated_specialities.page,
+            'per_page': paginated_specialities.per_page,
+        }
+    })
 
 @app.route('/specialities/<int:speciality_id>', methods = ["GET"])
 def get_speciality(speciality_id):
@@ -553,20 +594,10 @@ def get_speciality(speciality_id):
 
     if not speciality:
         return jsonify({
-            "error" , "speciality not found"
+            "error": "speciality not found"
             }) , 404
     
     return jsonify(speciality.to_dict()), 200
-
-@app.route('/specialities/<int:speciality_id>', methods=["DELETE"])
-def delete_speciality(speciality_id):
-    speciality = Speciality.query.get(speciality_id)
-
-    if not speciality:
-        return jsonify({"error": "speciality not found"}),404
-    db.session.delete(speciality)
-    db.session.commit()
-    return jsonify({"message": "speciality deleted sucessfully"}), 200
 
 @app.route('/specialities', methods = ["POST"])
 def add_speciality():
@@ -629,21 +660,303 @@ def update_speciality(speciality_id):
         "message": "Updated succesfully"
     }), 200
 
+@app.route('/specialities/<int:speciality_id>', methods=["DELETE"])
+def delete_speciality(speciality_id):
+    speciality = Speciality.query.get(speciality_id)
+
+    if not speciality:
+        return jsonify({"error": "speciality not found"}),404
+    
+    section = db.session.execute(db.select(Section).filter_by(speciality_id=speciality_id)).first()
+    if section:
+        return jsonify({"error": "can't delete Speciality with associated sections"}),400
+    
+    db.session.delete(speciality)
+    db.session.commit()
+    return jsonify({"message": "speciality deleted sucessfully"}), 200
+
+
 
 # =========================
 # Section ROUTES
 # =========================
+@app.route('/sections', methods=["GET"])
+def get_sections():
+    # filters
+    name = request.args.get("name")
+    page = request.args.get("page", default = 1, type=int)
+    page_size = request.args.get("page_size", default = 10, type = int)
+    teacher_id = request.args.get("teacher_id", type = int)
+    speciality_id = request.args.get("speciality_id", type = int)
+    level = request.args.get("level")
+
+    sections = Section.query
+
+    if name:
+        sections = sections.filter(Section.name.ilike(f"{name}"))
+    if teacher_id:
+        sections = sections.join(TeacherSection).filter(TeacherSection.teacher_id == teacher_id)
+    if speciality_id:
+        sections = sections.filter(Section.speciality_id == speciality_id)
+    if level:
+        sections = sections.join(Speciality).filter(Speciality.education_level == level)
+    
+    sections = sections.paginate(page=page, per_page=page_size)
+
+    return jsonify({
+        "count" : sections.total,
+        "page" : sections.page,
+        "total_pages" : sections.pages,
+        "sections": [section.to_dict() for section in sections.items],
+        
+    })
+
+@app.route('/sections', methods = ["POST"])
+def add_section():
+    data = request.get_json()
+    
+    required_fields = ["speciality_id", "name", "max_capacity"]
+    error = check_required_fields(required_fields, data)
+    if error:
+        return error
+    
+    error = run_validations([
+        (check_unique_field, [Section, "name", data["name"], db]),
+        (validate_positive_integer, [data["max_capacity"], "max_capacity"]),
+    ])
+    if error:
+        return error
+    
+    speciality = Speciality.query.get(data["speciality_id"])
+    if not speciality:
+        return jsonify({"error": "speciality not found"}), 404
+    
+    new_section = Section(
+        speciality_id = data["speciality_id"],
+        name = data["name"],
+        max_capacity = data["max_capacity"]
+    )
+
+    db.session.add(new_section)
+    db.session.commit()
+    
+    return jsonify(new_section.to_dict()), 201
+
+@app.route('/sections/<int:section_id>', methods=["DELETE"])
+def delete_section(section_id):
+    section = Section.query.get(section_id)
+    
+    if not section:
+        return jsonify({"error": "section not found"}), 404
+    
+    if section.students:
+        return jsonify({
+            "error": "Cannot delete section with assigned students"
+        }), 400
+        
+    # Check if section has any groups
+    if section.groups:
+        return jsonify({
+            "error": "Cannot delete section with assigned groups",
+        }), 400
+        
+    # Check if section has any teacher associations
+    if section.teacher_sections:
+        return jsonify({
+            "error": "Cannot delete section with assigned teachers",
+        }), 400
+        
+        
+    db.session.delete(section)
+    db.session.commit()
+    return jsonify({"message": "section deleted succesfully"}),200
+        
+@app.route('/sections/<int:section_id>', methods=["GET"])
+def get_section(section_id):
+    section = Section.query.get(section_id)
+
+    if section:
+        return jsonify(section.to_dict()), 200
+    else:
+        return jsonify({"error": "Section not found"}), 404
+
+@app.route('/sections/<int:section_id>', methods=["PUT"])
+def update_section(section_id):
+    section = Section.query.get(section_id)
+    
+    if not section:
+        return jsonify({"error": "Section not found"}), 404
+
+    data = request.get_json()
+
+    required_fields = ["speciality_id", "name", "max_capacity"]
+    error = check_required_fields(required_fields, data)
+    if error:
+        return error
+
+    error = run_validations([
+        (check_unique_field, [Section, "name", data["name"], db, "section_id", section.section_id]),
+        (validate_positive_integer, [data["max_capacity"], "max_capacity"]),
+    ])
+    if error:
+        return error
+    
+    speciality = Speciality.query.get(data["speciality_id"])
+    if not speciality:
+        return jsonify({"error": "Speciality not found"}), 404
+    
+    section.speciality_id = data["speciality_id"]
+    section.name = data["name"]
+    section.max_capacity = data["max_capacity"]
+    db.session.commit()
+
+    return jsonify(section.to_dict()), 200
 
 
+# =========================
+# Groups ROUTES
+# =========================
+@app.route('/groups', methods=["GET"])
+def get_groups():
+    # Filters
+    group_type = request.args.get("group_type")
+    section_id = request.args.get("section_id", type=int)
+    page = request.args.get("page", default=1, type=int)
+    page_size = request.args.get("page_size", default=10, type=int)
 
+    groups = Group.query
 
+    if group_type:
+        groups = groups.filter(Group.group_type == group_type)
+    if section_id:
+        groups = groups.filter(Group.section_id == section_id)
 
+    groups = groups.paginate(page=page, per_page=page_size)
 
+    return jsonify({
+        "count": groups.total,
+        "page": groups.page,
+        "total_pages": groups.pages,
+        "groups": [group.to_dict() for group in groups.items]
+    })
 
+@app.route('/groups/<int:group_id>', methods=["GET"])
+def get_group(group_id):
+    group = Group.query.get(group_id)
+    if group:
+        return jsonify(group.to_dict())
+    else:
+        return jsonify({"error": "Group not found"}), 404
 
+@app.route('/groups', methods=["POST"])
+def add_group():
+    """
+    REQUEST FORM:
+    {
+        "section_id": 1,
+        "group_type": "TD" or "TP",
+        "group_name": "Group A",
+        "max_capacity": 30
+    }
+    """
+    data = request.get_json()
+    
+    required_fields = ["section_id", "group_type", "group_name", "max_capacity"]
+    error = check_required_fields(required_fields, data)
+    if error:
+        return error
 
+    # Validate group_type is either TD or TP
+    if data["group_type"] not in ["TD", "TP"]:
+        return jsonify({"error": "Group type must be either TD or TP"}), 400
 
+    # Check if section exists
+    section = Section.query.get(data["section_id"])
+    if not section:
+        return jsonify({"error": "Section not found"}), 404
+    
+    error = run_validations([
+        (validate_positive_integer, [data["max_capacity"], "max_capacity"]),
+        (check_unique_field, [Group, "group_name", data["group_name"], db, "section_id", data["section_id"]]),
+    ])
+    if error:
+        return error
 
+    
+
+    new_group = Group(
+        section_id=data["section_id"],
+        group_type=data["group_type"],
+        group_name=data["group_name"],
+        max_capacity=data["max_capacity"]
+    )
+
+    db.session.add(new_group)
+    db.session.commit()
+
+    return jsonify(new_group.to_dict()), 201
+
+@app.route('/groups/<int:group_id>', methods=["PUT"])
+def update_group(group_id):
+    group = Group.query.get(group_id)
+    
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    data = request.get_json()
+    
+    required_fields = ["group_name", "max_capacity"]
+    error = check_required_fields(required_fields, data)
+    if error:
+        return error
+
+    error = run_validations([
+        (validate_positive_integer, [data["max_capacity"], "max_capacity"]),
+        (check_unique_field, [Group, "group_name", data["group_name"], db, "section_id", data["section_id"]]),
+    ])
+    if error:
+        return error
+
+    group.group_name = data["group_name"]
+    group.max_capacity = data["max_capacity"]
+    db.session.commit()
+
+    return jsonify({
+        "message": "Group updated successfully",
+    }), 200
+
+@app.route('/groups/<int:group_id>', methods=["DELETE"])
+def delete_group(group_id):
+    group = Group.query.get(group_id)
+    
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    # Check if group has students assigned
+    if group.students_tutorial or group.students_lab:
+        return jsonify({
+            "error": "Cannot delete group with assigned students"
+        }), 400
+
+    db.session.delete(group)
+    db.session.commit()
+
+    return jsonify({"message": "Group deleted successfully"}), 200
+
+@app.route('/groups/<int:group_id>/students', methods=["GET"])
+def get_group_students(group_id):
+    group = Group.query.get(group_id)
+    
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    # Get students based on group type
+    if group.group_type == "TD":
+        students = group.students_tutorial
+    else:
+        students = group.students_lab
+
+    return jsonify([student.to_dict() for student in students])
 
 
 
@@ -689,8 +1002,8 @@ def add_student():
             "email": "example@gmail.com",
             "password": "12345678"
             "matricule": 02323245326,
-            "first_name": "123456",
-            "last_name": 1,
+            "first_name": "test",
+            "last_name": "example",
             'birth_date': "01/01/2025",
             'nationality': "Algerian",
             'gender': "Male",
@@ -715,14 +1028,13 @@ def add_student():
     if error:
         return error
 
-    # give the student the role "Student" by default
-    role = db.session.execute(db.select(Role).filter_by(role_name="Student")).first()
-    data["role_id"] = role.role_id
+    
     
     error = run_validations([
         (validate_email_format, [data["email"]]),
         (check_unique_field, [User, "email", data["email"], db]), # check for unique email in Users table
         (validate_password_length, [data["password"]]),
+        (check_valid_date, data["birth_date"]),
     ])
     if error:
         return error
@@ -731,6 +1043,12 @@ def add_student():
     validation_error = Student.validate_student(data, db)
     if validation_error:
         return validation_error
+    
+    
+    # give the student the role "Student" by default
+    role = db.session.execute(db.select(Role).filter_by(role_name="Student")).first()
+    data["role_id"] = role[0].role_id
+    
     
     # create student
     new_user = User(email=data["email"], hashed_password=hash_password(str(data["password"])), role_id=data["role_id"])
@@ -756,24 +1074,199 @@ def add_student():
     
     db.session.add(new_student)
     db.session.commit()
+    return jsonify(new_student.to_dict())
+    
+@app.route('/students/<int:student_id>', methods=["DELETE"])
+def delete_student(student_id):
+    student = Student.query.get(student_id)
+    
+    if not student:
+        return jsonify({
+            "error": "Student not found"
+        }), 404
+    
+    db.session.delete(student)
+    db.session.commit()
+    return jsonify({"message": "student deleted sucessfully"}), 200
+    
+@app.route('/students/<int:student_id>', methods=["PUT"])
+def update_student(student_id):
+    """
+        REQUEST FORM:
+        {
+            "matricule": 02323245326,
+            "first_name": "test",
+            "last_name": "example",
+            'birth_date': "01/01/2025",
+            'nationality': "Algerian",
+            'gender': "Male",
+            'disability': false,
+            'phone_number': "0550505050",
+            'observation': "new student",
+        }
+    """
+    student = Student.query.get(student_id)
+    
+    if not student:
+        return jsonify({
+            "error": "Student not found"
+        }), 404
+
+    data = request.get_json()
+    required_fields = [
+        "matricule", "first_name", "last_name", 
+        "birth_date", "nationality", "gender", 
+        "disability", "phone_number", "observation"
+    ]
+    error = check_required_fields(required_fields, data)
+    if error:
+        return error
+    
+    error = check_valid_date(data["birth_date"])
+    if error:
+        return error
+    
+
+    student.matricule = data['matricule']
+    student.first_name = data['first_name']
+    student.last_name=data['last_name']
+    student.birth_date=data['birth_date']
+    student.nationality=data['nationality']
+    student.gender=data['gender']
+    student.disability=data['disability']
+    student.phone_number=data['phone_number']
+    student.observation=data['observation']
+
+    db.session.commit()
+
+    return jsonify({
+        "message": "Updated succesfully"
+    }), 200
+
+
+
+# =========================
+# Staff ROUTES
+# =========================
+@app.route('/staffs', methods=["GET"])
+def get_staffs():
+    staffs = Staff.query.all()
+    return jsonify([staff.to_dict() for staff in staffs])
+
+@app.route('/staffs/<int:staff_id>', methods=["GET"])
+def get_staff(staff_id):
+    staff = Staff.query.get(staff_id)
+    
+    if not staff:
+        return jsonify({
+            "error": "Staff not found"
+        }), 404
+
+    return jsonify(staff.to_dict())
+
+@app.route('/staffs', methods=["POST"])
+def add_staff():
+    """
+        REQUEST FORM:
+        {
+            "email": "example@gmail.com",
+            "password": "12345678",
+            "first_name": "test",
+            "last_name": "example",
+            "grade": "Doctorat",
+        }
+    """
+    data = request.get_json()
+    
+    required_fields = ["email", "password", "first_name", "last_name", "grade"]
+    error = check_required_fields(required_fields, data)
+    if error:
+        return error
+    
+    
+    error = run_validations([
+        (validate_email_format, [data["email"]]),
+        (check_unique_field, [User, "email", data["email"], db]), # check for unique email in Users table
+        (validate_password_length, [data["password"]]),
+    ])
+    if error:
+        return error
+    
+    
+    # give the staff the role "Admin" by default
+    role = db.session.execute(db.select(Role).filter_by(role_name="Admin")).first()
+    data["role_id"] = role[0].role_id  
+    
+
+    new_user = User(email=data["email"], hashed_password=hash_password(str(data["password"])), role_id=data["role_id"])
+    db.session.add(new_user)
+    db.session.commit()
+
+    new_staff = Staff(
+        user_id=new_user.user_id,
+        first_name=data["first_name"],
+        last_name=data["last_name"],
+        grade=data["grade"]
+    )
+    db.session.add(new_staff)
+    db.session.commit()
+    
+    return jsonify(new_staff.to_dict())
+
+@app.route('/staffs/<int:staff_id>', methods=["PUT"])
+def update_staff(staff_id):
+    """
+        REQUEST FORM:
+        {
+            "first_name": "test",
+            "last_name": "example",
+            "grade": "Doctorat",
+        }
+    """
+    
+    staff = Staff.query.get(staff_id)
+    if not staff:
+        return jsonify({
+            "error": "Staff not found"
+        }), 404
+    
+    data = request.get_json()
+    
+    required_fields = ["first_name", "last_name", "grade"]
+    error = check_required_fields(required_fields, data)
+    if error:
+        return error
+    
+    staff.first_name=data["first_name"]
+    staff.last_name=data["last_name"]
+    staff.grade=data["grade"]
+    
+    db.session.commit()
+    
+    return jsonify({
+        "message": "Updated succesfully"
+    }), 200
+
+@app.route('/staffs/<int:staff_id>', methods=["DELETE"])
+def delete_staff(staff_id):
+    staff = Staff.query.get(staff_id)
+    
+    if not staff:
+        return jsonify({
+            "error": "Staff not found"
+        }), 404
+    
+    db.session.delete(staff)
+    db.session.commit()
+    
+    return jsonify({"message": "staff deleted sucessfully"}), 200
     
     
     
+# =========================
+# Teachers ROUTES
+# =========================
     
-    
-
-
-    
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -804,9 +1297,160 @@ def insert_base_roles():
     db.session.commit()
     print("Base roles inserted.")
 
+import random
+from datetime import datetime, timedelta
+
+def generate_test_data(db):
+    """Generate complete test data including roles, specialties, sections, groups, and students"""
+    try:
+        # Clear existing test data first (optional)
+        db.session.query(Student).delete()
+        db.session.query(Group).delete()
+        db.session.query(Section).delete()
+        db.session.query(Speciality).delete()
+        db.session.query(User).delete()
+        db.session.commit()
+
+        # Sample data lists
+        first_names = ["Alice", "Bob", "Charlie", "David", "Eve", 
+                      "Frank", "Grace", "Henry", "Ivy", "Jack"]
+        last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", 
+                     "Miller", "Davis", "Garcia", "Wilson", "Taylor"]
+        countries = ["USA", "Canada", "UK", "France", "Germany", 
+                    "Japan", "Australia", "Brazil", "India", "China"]
+        
+        # 1. Create required roles if they don't exist
+        roles = [
+            {"role_name": "Student", "permission_level": 1, "protected": True},
+            {"role_name": "Teacher", "permission_level": 2, "protected": True},
+            {"role_name": "Admin", "permission_level": 3, "protected": True}
+        ]
+        
+        for role_data in roles:
+            if not db.session.execute(db.select(Role).filter_by(role_name=role_data["role_name"])).scalar_one_or_none():
+                db.session.add(Role(**role_data))
+        db.session.commit()
+
+        # Get the student role ID
+        student_role = db.session.execute(
+            db.select(Role).filter_by(role_name="Student")
+        ).scalar_one()
+
+        # 2. Create Specialties
+        specialties = [
+            Speciality(name="Computer Science", education_level=3),
+            Speciality(name="Electrical Engineering", education_level=3),
+            Speciality(name="Mathematics", education_level=3),
+        ]
+        db.session.add_all(specialties)
+        db.session.commit()
+
+        # 3. Create Sections
+        sections = []
+        for specialty in specialties:
+            for i in range(1, 3):  # 2 sections per specialty
+                section = Section(
+                    speciality_id=specialty.speciality_id,
+                    name=f"{specialty.name[:3]}-{i}",
+                    max_capacity=30
+                )
+                sections.append(section)
+        db.session.add_all(sections)
+        db.session.commit()
+
+        # 4. Create Groups
+        groups = []
+        for section in sections:
+            # TD Groups
+            for i in range(1, 3):
+                groups.append(Group(
+                    section_id=section.section_id,
+                    group_type="TD",
+                    group_name=f"TD-{section.name}-{i}",
+                    max_capacity=15
+                ))
+            # TP Groups
+            for i in range(1, 4):
+                groups.append(Group(
+                    section_id=section.section_id,
+                    group_type="TP",
+                    group_name=f"TP-{section.name}-{i}",
+                    max_capacity=10
+                ))
+        db.session.add_all(groups)
+        db.session.commit()
+
+        # 5. Create Students with unique emails
+        used_emails = set()
+        
+        for i in range(1, 21):  # 20 students
+            section = random.choice(sections)
+            td_groups = [g for g in groups if g.section_id == section.section_id and g.group_type == "TD"]
+            tp_groups = [g for g in groups if g.section_id == section.section_id and g.group_type == "TP"]
+
+            # Generate unique email
+            while True:
+                email = f"student{i}@university.edu"
+                if email not in used_emails:
+                    used_emails.add(email)
+                    break
+                i += 1
+
+            # Create user
+            user = User(
+                email=email,
+                hashed_password="password123",
+                role_id=student_role.role_id
+            )
+            db.session.add(user)
+            db.session.flush()  # Get the user_id
+
+            # Random birth date (18-25 years old)
+            birth_date = datetime.now() - timedelta(days=random.randint(365*18, 365*25))
+
+            # Create student
+            student = Student(
+                user_id=user.user_id,
+                matricule=f"2023-{random.randint(1000, 9999)}",
+                first_name=random.choice(first_names),
+                last_name=random.choice(last_names),
+                birth_date=birth_date,
+                nationality=random.choice(countries),
+                gender=random.choice(["Male", "Female"]),
+                disability=random.choice([True, False]),
+                phone_number=f"06{random.randint(10, 99)}{random.randint(10, 99)}{random.randint(10, 99)}{random.randint(10, 99)}",
+                observation="Test student",
+                speciality_id=section.speciality_id,
+                section_id=section.section_id,
+                tutorial_group_id=random.choice(td_groups).group_id,
+                lab_group_id=random.choice(tp_groups).group_id
+            )
+            db.session.add(student)
+        
+        db.session.commit()
+        return {
+            "status": "success",
+            "counts": {
+                "roles": 3,
+                "specialties": len(specialties),
+                "sections": len(sections),
+                "groups": len(groups),
+                "students": 20
+            }
+        }
+
+    except Exception as e:
+        db.session.rollback()
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
 # don't touch this
 with app.app_context():
     insert_base_roles()
+    generate_test_data(db)
     db.create_all()
 if __name__ == '__main__':
     app.run(debug=True)

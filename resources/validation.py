@@ -1,5 +1,8 @@
 from flask import jsonify
 from validate_email import validate_email
+import bcrypt
+
+
 
 def check_required_fields(required_fields, data):
     for field in required_fields:
@@ -58,6 +61,15 @@ def validate_password_length(password):
         }), 400
     return None
 
+def check_valid_date(date):
+    try:
+        date = datetime.strptime(date, '%d/%m/%Y').date()
+        return None
+    except ValueError:
+        return jsonify({
+            "error": "Invalid date format. Please use DD/MM/YYYY"
+        }), 400
+
 def run_validations(validations):
     for validate_func, args in validations:
         error = validate_func(*args)
@@ -68,7 +80,17 @@ def run_validations(validations):
 
 
 
+# Password Hashing
+def hash_password(password):
+    salt = bcrypt.gensalt()
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed_password.decode('utf-8')
 
+def check_password(input_password, stored_hash):
+    return bcrypt.checkpw(
+        input_password.encode('utf-8'),
+        stored_hash.encode('utf-8')
+    )
 
 
 

@@ -986,6 +986,8 @@ def get_students():
     students = Student.query.all()
     return jsonify([student.to_dict() for student in students])
 
+
+
 @app.route('/students/<int:student_id>', methods=["GET"])
 def get_student(student_id):
     student = Student.query.get(student_id)
@@ -993,6 +995,19 @@ def get_student(student_id):
         return jsonify(student.to_dict())
     else:
         return jsonify({"error": "Student not found"}), 404
+    
+#get students by speciality and section:
+@app.route('/students/speciality/<int:speciality_id>/section/<int:section_id>', methods = ["GET"])
+def get_students_v2(speciality_id,section_id):
+    students = db.session.query(Student).filter(
+        Student.speciality_id == speciality_id,
+        Student.section_id  == section_id
+    ).all()
+    if not students:
+        return jsonify({"error" : "no students found for given speciality and section"}),404
+    return jsonify([student.to_dict() for student in students]),200
+
+
 
 @app.route('/students', methods=["POST"])
 def add_student():
@@ -1266,17 +1281,80 @@ def delete_staff(staff_id):
 # =========================
 # Teachers ROUTES
 # =========================
+@app.route('/teachers', methods=["GET"])
+def get_teachers():
+    teachers = Teacher.query.all()
+    if not teachers:
+        return jsonify({"error" : "no teacher found"}),404
+    return [teacher.to_dict() for teacher in teachers],200
+
+@app.route('/teachers/<int:teacher_id>',methods=["GET"])
+def get_teacher(teacher_id):
+    teacher = Teacher.query.get(teacher_id)
+    if not teacher:
+        return jsonify({"error" : "no teacher found"}),404
+    return jsonify(teacher.to_dict()),200
+
+@app.route('/teachers', methods = ["POST"])
+def add_teacher():
+    data = request.get_json()
+    required_fields = ["user_id","first_name","last_name","grade"]
+    error = run_validations(check_required_fields(required_fields, data)
+, validate_positive_integer(data["user_id"], "User id"))
+    
+    if error:
+        return error
+    user = User.query.get(data["user_id"])
+
+    if not user:
+        return jsonify({"error": "user not found"}),400
+    
+    teacher = Teacher(
+        user_id=data["user_id"],
+        first_name = data["first_name"],
+        last_name = data["last_name"],
+        grade = data["grade"]
+    )
+    db.session.add(teacher)
+    db.session.commit()
+
+    return jsonify({"message" : "teacher added sucessfully"}),200
     
 
+@app.route('/teachers/<int:teacher_id>', methods=["PUT"])
+def update_teacher(teacher_id):
+     
+    teacher = Teacher.query.get(teacher_id)
+     
+    if not teacher:
+        return jsonify({"error" : "teacher not found"}),400
+    teacher_user_id = teacher.user_id
+    data = request.get_json()
+    required_fields = ["user_id","first_name","last_name","grade"]
+    error = run_validations(check_required_fields(required_fields, data)
+, validate_positive_integer(data["user_id"], "User id"), check_unique_field(Teacher,"user_id", data["user_id"], db,"user_id",teacher_user_id))
+    if error:
+        return error
+     # if the updated teacher has a new user_id we gotta verifiy if it exists
+    if data["user_id"] != teacher_user_id:
+        user = User.query.get(data["user_id"])
+        if not user:
+            return jsonify({"error" : "user not found"}),400
+    teacher.user_id=data["user_id"]
+    teacher.first_name = data["first_name"]
+    teacher.last_name = data["last_name"]
+    teacher.grade = data["grade"]  
+    db.session.commit()
+    return jsonify({"message" : "teacher updated sucessfully"}),200
 
-
-
-
-
-
-
-
-
+@app.route('/teachers/<int:teacher_id>', methods=["DELETE"])
+def delete_teacher(teacher_id):
+    teacher = Teacher.query.get(teacher_id)
+    if not teacher:
+        return jsonify({"error : teacher not found"}),400
+    db.session.delete(teacher)
+    db.session.commit()
+    return jsonify({"message":"teacher deleted sucessfully"}),200
 
 
 
@@ -1449,7 +1527,10 @@ def generate_test_data(db):
 
 # don't touch this
 with app.app_context():
-    insert_base_roles()
+    from sqlalchemy import inspect
+    inspector = inspect(db.engine)
+    if 'roles' in inspector.get_table_names():
+         insert_base_roles()
     generate_test_data(db)
     db.create_all()
 if __name__ == '__main__':

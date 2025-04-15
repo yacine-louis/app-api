@@ -18,6 +18,18 @@ def get_student(student_id):
         return jsonify(student.to_dict())
     else:
         return jsonify({"error": "Student not found"}), 404
+    
+    #get students by speciality and section:
+@student_bp.route('/students/speciality/<int:speciality_id>/section/<int:section_id>', methods = ["GET"])
+def get_students_v2(speciality_id,section_id):
+    students = db.session.query(Student).filter(
+        Student.speciality_id == speciality_id,
+        Student.section_id  == section_id
+    ).all()
+    if not students:
+        return jsonify({"error" : "no students found for given speciality and section"}),404
+    return jsonify([student.to_dict() for student in students]),200
+
 
 @student_bp.route('/', methods=["POST"])
 def add_student():

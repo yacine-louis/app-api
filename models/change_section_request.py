@@ -1,7 +1,7 @@
 from .base import BaseModel, db
 
-class SectionChangeRequest(BaseModel):
-    __tablename__ = 'section_change_requests'
+class ChangeSectionRequest(BaseModel):
+    __tablename__ = 'change_section_requests'
     
     section_change_request_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
     request_id = db.Column(db.Integer, db.ForeignKey('requests.request_id'), nullable=False)

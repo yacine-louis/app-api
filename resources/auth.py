@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import jsonify, current_app
+from flask import jsonify, current_app, request
 from flask_jwt_extended import (
     create_access_token,
     jwt_required,
@@ -11,7 +11,7 @@ import jwt
 from datetime import datetime, timedelta
 
 
-SECRET_KEY = "your_very_secret_key_here"  
+
 
 # JWT token helper functions
 def generate_token(user_id, role_id, expires_delta=timedelta(days=1)):
@@ -84,45 +84,45 @@ def role_required(min_permission_level):
         return decorated
     return decorator
 
-@bp.route('/login', methods=['POST'])
-def login():
-    """
-    AUTHENTICATINGG a user and return a JWT token! 
-    """
-    data = request.json
+# @bp.route('/login', methods=['POST'])
+# def login():
+#     """
+#     AUTHENTICATINGG a user and return a JWT token! 
+#     """
+#     data = requesst.get_json()
     
-    if not data or not data.get('email') or not data.get('password'):
-        return jsonify({'error': 'Email and password are required'}), 400
+#     if not data or not data.get('email') or not data.get('password'):
+#         return jsonify({'error': 'Email and password are required'}), 400
     
-    user = User.query.filter_by(email=data['email']).first()
-    if not user or not user.check_password(data['password']):
-        return jsonify({'error': 'Invalid email or password'}), 401
+#     user = User.query.filter_by(email=data['email']).first()
+#     if not user or not user.check_password(data['password']):
+#         return jsonify({'error': 'Invalid email or password'}), 401
     
-    token = generate_token(user.user_id, user.role_id)
+#     token = generate_token(user.user_id, user.role_id)
     
-    # Hnaya we sort info for the backend
-    user_info = {
-        'user_id': user.user_id,
-        'email': user.email,
-        'role': user.role.to_dict() if user.role else None
-    }
+#     # Hnaya we sort info for the backend
+#     user_info = {
+#         'user_id': user.user_id,
+#         'email': user.email,
+#         'role': user.role.to_dict() if user.role else None
+#     }
     
-    # Hnaya nzido njibo full info nta3 user depending on wether raho student or teacher
-    if hasattr(user, 'student') and user.student:
-        user_info['student'] = user.student.to_dict()
+#     # Hnaya nzido njibo full info nta3 user depending on wether raho student or teacher
+#     if hasattr(user, 'student') and user.student:
+#         user_info['student'] = user.student.to_dict()
     
-    if hasattr(user, 'teacher') and user.teacher:
-        user_info['teacher'] = user.teacher.to_dict()
+#     if hasattr(user, 'teacher') and user.teacher:
+#         user_info['teacher'] = user.teacher.to_dict()
     
-    return jsonify({
-        'success': True,
-        'token': token,
-        'user': user_info
-    })
+#     return jsonify({
+#         'success': True,
+#         'token': token,
+#         'user': user_info
+#     })
 
-@bp.route('/verify', methods=['GET'])
-@token_required
-def verify_token():
+# @bp.route('/verify', methods=['GET'])
+# @token_required
+# def verify_token():
     """
     Verify a JWT token and return user info
     """
@@ -146,3 +146,29 @@ def verify_token():
         'valid': True,
         'user': user_info
     })
+    
+    
+    
+    
+    from models.user import User
+
+    # New decorator: roles_required
+    def roles_required(allowed_permission_levels):
+        """
+        Restrict access to users with specific permission levels.
+        :param allowed_permission_levels: List of allowed permission levels.
+        """
+        def decorator(f):
+            @wraps(f)
+            def decorated(*args, **kwargs):
+                auth_result = token_required(lambda: None)()
+                if isinstance(auth_result, tuple) and auth_result[1] != 200:
+                    return auth_result
+                
+                user = getattr(request, 'user')
+                if not user.role or user.role.permission_level not in allowed_permission_levels:
+                    return jsonify({'error': 'Insufficient permissions'}), 403
+                
+                return f(*args, **kwargs)
+            return decorated
+        return decorator

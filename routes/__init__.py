@@ -6,7 +6,7 @@ from .section_routes import section_bp
 from .group_routes import group_bp
 from .student_routes import student_bp
 from .staff_routes import staff_bp
-
+from .stats_routes import stats_bp
 
 
 def register_blueprints(app):
@@ -17,6 +17,6 @@ def register_blueprints(app):
     app.register_blueprint(group_bp, url_prefix='/groups')
     app.register_blueprint(student_bp, url_prefix='/students')
     app.register_blueprint(staff_bp, url_prefix='/staffs')
-
+    app.register_blueprint(stats_bp, url_prefix='/stats')
 
 

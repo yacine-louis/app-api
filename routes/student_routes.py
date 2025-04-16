@@ -1,78 +1,75 @@
 from flask import Blueprint, jsonify, request
-from models.student import Student
-from models import db
+from models import db, Student, User
 from resources.validations import *
+
+from sqlalchemy import or_
+
 
 student_bp = Blueprint('student_bp', __name__)
 
 
 
-
-
-
-
-
-
 @student_bp.route('/', methods=["GET"])
 def get_students():
-    students = Student.query.all()
-    return jsonify([student.to_dict() for student in students])
-
-@student_bp.route('/<int:student_id>', methods=["GET"])
-def get_student(student_id):
-    student = Student.query.get(student_id)
-    if student:
-        return jsonify(student.to_dict())
-    else:
-        return jsonify({"error": "Student not found"}), 404
-
-@student_bp.route('/students/speciality/<int:speciality_id>/section/<int:section_id>', methods = ["GET"])
-def get_students_v2(speciality_id,section_id):
-    students = db.session.query(Student).filter(
-        Student.speciality_id == speciality_id,
-        Student.section_id  == section_id
-    ).all()
-    if not students:
-        return jsonify({"error" : "no students found for given speciality and section"}),404
-    return jsonify([student.to_dict() for student in students]),200
+    # filters
+    search_data = request.args.get("search_data", type=str)
+    page = request.args.get("page", default=1, type=int)
+    page_size = request.args.get("page_size", default=10, type=int)
+    section_id = request.args.get("section_id", type=int)
+    tutorial_group_id = request.args.get("tutorial_group_id", type=int)
+    lab_group_id = request.args.get("lab_group_id", type=int)
+    status = request.args.get("status", type=str)
+    
+    students = Student.query
+    
+    if search_data:
+        search_data = search_data.strip()
+        try:
+            search_id = int(search_data)
+            students = students.filter(Student.id == search_id)
+        except ValueError:
+            students = students.filter(or_(
+                Student.first_name.ilike(f"%{search_data}%"),
+                Student.last_name.ilike(f"%{search_data}%"),
+            ))        
+    if section_id:
+        students = students.filter(Student.section_id == section_id)
+    if tutorial_group_id:
+        students = students.filter(Student.tutorial_group_id == tutorial_group_id)
+    if lab_group_id:
+        students = students.filter(Student.lab_group_id == lab_group_id)
+    if status:
+        students = students.filter(Student.status == status)
+    
+    students = students.paginate(page=page, per_page=page_size)
+    
+    return jsonify({
+        "success": True,
+        "data": [student.to_dict() for student in students.items], 
+        "pagination": {
+            "totalItems": students.total,
+            "currentPage": students.page,
+            "pageSize": students.per_page,
+            "totalPages": students.pages,
+        }
+    })
 
 @student_bp.route('/', methods=["POST"])
 def add_student():
-    """
-        REQUEST FORM:
-        {
-            "email": "example@gmail.com",
-            "password": "12345678"
-            "matricule": 02323245326,
-            "first_name": "test",
-            "last_name": "example",
-            'birth_date': "01/01/2025",
-            'nationality': "Algerian",
-            'gender': "Male",
-            'disability': false,
-            'phone_number': "0550505050",
-            'observation': "new student",
-            'speciality_id': 3,
-            'section_id': 4,
-            'tutorial_group_id': 1,
-            'lab_group_id': 2
-        }
-    """
     data = request.get_json()
+    
     required_fields = [
         "email", "password", 
-        "matricule", "first_name", "last_name", 
+        "first_name", "last_name", 
         "birth_date", "nationality", "gender", 
         "disability", "phone_number", "observation", 
-        "speciality_id", "section_id", "tutorial_group_id", "lab_group_id"
+        "speciality_id", "section_id", 
+        "tutorial_group_id", "lab_group_id",
+        "status"
     ]
-    error = validate_required_fields(required_fields, data)
-    if error:
-        return jsonify(error), 400
-
-    
     
     error = run_validations([
+        (validate_required_fields, [required_fields, data]),
         (validate_email_format, [data["email"]]),
         (validate_unique_field, [User, "email", data["email"], db]), # check for unique email in Users table
         (validate_password_length, [data["password"]]),
@@ -80,7 +77,6 @@ def add_student():
     ])
     if error:
         return jsonify(error), 400
-    
     
     validation_error = Student.validate_student(data, db)
     if validation_error:
@@ -93,13 +89,12 @@ def add_student():
     
     
     # create student
-    new_user = User(email=data["email"], hashed_password=hash_password(str(data["password"])), role_id=data["role_id"])
+    new_user = User(email=data["email"], password_hash=User.hash_password(str(data["password"])), role_id=data["role_id"])
     db.session.add(new_user)
     db.session.commit()
 
     new_student = Student(
         user_id=new_user.user_id, 
-        matricule=data['matricule'], 
         first_name=data['first_name'], 
         last_name=data['last_name'],
         birth_date=data['birth_date'],
@@ -111,42 +106,29 @@ def add_student():
         speciality_id=data['speciality_id'],
         section_id=data['section_id'],
         tutorial_group_id=data['tutorial_group_id'],
-        lab_group_id=data['lab_group_id']
+        lab_group_id=data['lab_group_id'],
+        status=data['status']
     )
     
     db.session.add(new_student)
     db.session.commit()
-    return jsonify(new_student.to_dict())
     
-@student_bp.route('/<int:student_id>', methods=["DELETE"])
-def delete_student(student_id):
+    return jsonify({
+            "success": True,
+            "message": "Student created successfully",
+            "student": new_student.to_dict()
+        }), 201
+    
+@student_bp.route('/<int:student_id>', methods=["GET"])
+def get_student(student_id):
     student = Student.query.get(student_id)
-    
-    if not student:
-        return jsonify({
-            "error": "Student not found"
-        }), 404
-    
-    db.session.delete(student)
-    db.session.commit()
-    return jsonify({"message": "student deleted sucessfully"}), 200
-    
+    if student:
+        return jsonify(student.to_dict())
+    else:
+        return jsonify({"error": "Student not found"}), 404
+
 @student_bp.route('/<int:student_id>', methods=["PUT"])
 def update_student(student_id):
-    """
-        REQUEST FORM:
-        {
-            "matricule": 02323245326,
-            "first_name": "test",
-            "last_name": "example",
-            'birth_date': "01/01/2025",
-            'nationality': "Algerian",
-            'gender': "Male",
-            'disability': false,
-            'phone_number': "0550505050",
-            'observation': "new student",
-        }
-    """
     student = Student.query.get(student_id)
     
     if not student:
@@ -156,20 +138,20 @@ def update_student(student_id):
 
     data = request.get_json()
     required_fields = [
-        "matricule", "first_name", "last_name", 
-        "birth_date", "nationality", "gender", 
-        "disability", "phone_number", "observation"
+        "first_name", "last_name", "birth_date", 
+        "nationality", "gender", "disability",
+        "phone_number", "observation", "status"
     ]
-    error = validate_required_fields(required_fields, data)
-    if error:
-        return jsonify(error), 400
     
-    error = validate_date_format(data["birth_date"])
+    error = run_validations([
+        (validate_required_fields, [required_fields, data]),
+        (validate_date_format, data["birth_date"])
+    ])
     if error:
         return jsonify(error), 400
     
 
-    student.matricule = data['matricule']
+    # update student
     student.first_name = data['first_name']
     student.last_name=data['last_name']
     student.birth_date=data['birth_date']
@@ -182,6 +164,26 @@ def update_student(student_id):
     db.session.commit()
 
     return jsonify({
-        "message": "Updated succesfully"
+        "success": True,
+        "message": "Student updated successfully",
+        "student": student.to_dict()
     }), 200
+  
+@student_bp.route('/<int:student_id>', methods=["DELETE"])
+def delete_student(student_id):
+    student = Student.query.get(student_id)
+    
+    if not student:
+        return jsonify({
+            "error": "Student not found"
+        }), 404
+        
+    user = User.query.get(student.user_id)
+    db.session.delete(user)
+    db.session.delete(student)
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "message": "student deleted sucessfully"
+        }), 200
 

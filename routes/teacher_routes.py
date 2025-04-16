@@ -1,7 +1,5 @@
 from flask import Blueprint, jsonify, request
-from models.teacher import Teacher
-from models.user import User
-from models import db
+from models import db, User, Teacher
 from resources.validations import *
 
 teacher_bp  = Blueprint('teacher_bp',__name__)
@@ -23,8 +21,9 @@ def get_teacher(teacher_id):
 def add_teacher():
     data = request.get_json()
     required_fields = ["user_id","first_name","last_name","grade"]
-    error = run_validations(validate_required_fields(required_fields, data)
-, validate_positive_integer(data["user_id"], "User id"))
+    error = run_validations(
+        validate_required_fields(required_fields, data), 
+        validate_positive_integer(data["user_id"], "User id"))
     
     if error:
         return error

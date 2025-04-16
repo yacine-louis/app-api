@@ -25,12 +25,13 @@ class User(BaseModel):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
         
-        
+    @staticmethod    
     def hash_password(password):
         salt = bcrypt.gensalt()
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
         return hashed_password.decode('utf-8')
-
+    
+    @staticmethod
     def check_password(input_password, stored_hash):
         return bcrypt.checkpw(
             input_password.encode('utf-8'),

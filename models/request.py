@@ -7,6 +7,7 @@ class Request(BaseModel):
     student_id = db.Column(db.Integer, db.ForeignKey('students.student_id'), nullable=False)
     status = db.Column(db.String(64), nullable=False)
     reason = db.Column(db.Text, nullable=False)
+    urgency = db.Column(db.String(64), nullable=False)
     
     change_group_requests = db.relationship('ChangeGroupRequest', backref='request', lazy=True)
     change_section_requests = db.relationship('ChangeSectionRequest', backref='request', lazy=True)
@@ -20,6 +21,7 @@ class Request(BaseModel):
             'student': self.student.to_dict() if self.student else None,
             'status': self.status,
             'reason': self.reason,
+            'urgency': self.urgency,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

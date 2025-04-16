@@ -6,7 +6,6 @@ class Role(BaseModel):
     role_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
     role_name = db.Column(db.String(64), nullable=False)
     permission_level = db.Column(db.Integer, nullable=False)
-    protected = db.Column(db.Boolean, default=False)
     
     users = db.relationship('User', backref='role', lazy=True)
     

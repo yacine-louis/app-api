@@ -1,12 +1,12 @@
 from .base import BaseModel, db
-import bcrypt
+
 
 class Student(BaseModel):
     __tablename__ = 'students'
     
     student_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
-    matricule = db.Column(db.String(255), nullable=False)
+    # matricule = db.Column(db.String(255), nullable=False)
     first_name = db.Column(db.String(64), nullable=False)
     last_name = db.Column(db.String(64), nullable=False)
     birth_date = db.Column(db.Date, nullable=False)
@@ -19,6 +19,7 @@ class Student(BaseModel):
     section_id = db.Column(db.Integer, db.ForeignKey('sections.section_id'), nullable=False)
     tutorial_group_id = db.Column(db.Integer, db.ForeignKey('groups.group_id'), nullable=False)
     lab_group_id = db.Column(db.Integer, db.ForeignKey('groups.group_id'), nullable=False)
+    status = db.Column(db.String(64), nullable=False, default="active")
     
     requests = db.relationship('Request', backref='student', lazy=True)
     swap_group_requests_current = db.relationship('SwapGroupRequest', foreign_keys='SwapGroupRequest.current_student_id', backref='current_student', lazy=True)
@@ -30,7 +31,6 @@ class Student(BaseModel):
             'student_id': self.student_id,
             'user_id': self.user_id,
             'user': self.user.to_dict() if self.user else None,
-            'matricule': self.matricule,
             'first_name': self.first_name,
             'last_name': self.last_name,
             'birth_date': self.birth_date.strftime('%d/%m/%Y') if self.birth_date else None,
@@ -43,6 +43,7 @@ class Student(BaseModel):
             'speciality': self.speciality.to_dict() if self.speciality else None,
             'section_id': self.section_id,
             'section': self.section.to_dict() if self.section else None,
+            'status': self.status,
             'tutorial_group_id': self.tutorial_group_id,
             'tutorial_group': self.tutorial_group.to_dict() if self.tutorial_group else None,
             'lab_group_id': self.lab_group_id,
@@ -65,24 +66,15 @@ class Student(BaseModel):
             return {"error": "Invalid section"}
             
         # check if valid group_td within the section
-        group_td = db.session.execute(db.select(Group).filter_by(group_type="TD", group_id=data["tutorial_group_id"], section_id=data["section_id"])).first()
+        group_td = db.session.execute(db.select(Group).filter_by(group_type="tutorial", group_id=data["tutorial_group_id"], section_id=data["section_id"])).first()
         if not group_td:
-            return {"error": "Invalid group TD"}
+            return {"error": "Invalid group tutorial"}
             
         # check if valid group_tp within the section
-        group_tp = db.session.execute(db.select(Group).filter_by(group_type="TP", group_id=data["lab_group_id"], section_id=data["section_id"])).first()
+        group_tp = db.session.execute(db.select(Group).filter_by(group_type="lab", group_id=data["lab_group_id"], section_id=data["section_id"])).first()
         if not group_tp:
-            return {"error": "Invalid group TP"}
+            return {"error": "Invalid group lab"}
         
         return None
     
-    def hash_password(password):
-        salt = bcrypt.gensalt()
-        hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
-        return hashed_password.decode('utf-8')
-
-    def check_password(input_password, stored_hash):
-        return bcrypt.checkpw(
-            input_password.encode('utf-8'),
-            stored_hash.encode('utf-8')
-        )
+    

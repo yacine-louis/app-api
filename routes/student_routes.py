@@ -6,6 +6,13 @@ from resources.validations import *
 student_bp = Blueprint('student_bp', __name__)
 
 
+
+
+
+
+
+
+
 @student_bp.route('/', methods=["GET"])
 def get_students():
     students = Student.query.all()

@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from models import db, Student, User
+from models import db, Student, User, Role
 from resources.validations import *
 
 from sqlalchemy import or_
@@ -26,7 +26,7 @@ def get_students():
         search_data = search_data.strip()
         try:
             search_id = int(search_data)
-            students = students.filter(Student.id == search_id)
+            students = students.filter(Student.student_id == search_id)
         except ValueError:
             students = students.filter(or_(
                 Student.first_name.ilike(f"%{search_data}%"),

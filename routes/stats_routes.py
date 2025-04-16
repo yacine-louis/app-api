@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from models import db, Student, Teacher, Staff, Section, Group, Request, Role, ChangeSectionRequest, ChangeGroupRequest,  SwapGroupRequest, SwapSectionRequest
+from models import db, Student, Teacher, Staff, Section, Group, Request, Role, ChangeSectionRequest, ChangeGroupRequest,  SwapGroupRequest, SwapSectionRequest, TeacherGroup, TeacherSection
 from resources.auth import token_required
 
 stats_bp = Blueprint('stats_bp', __name__)
@@ -37,9 +37,26 @@ def get_stats():
 
     elif role_name == "Teacher":
         teacher_id = user.teacher.teacher_id 
-        active_groups = Group.query.join(Group.teacher_groups).filter_by(teacher_id=teacher_id).count()
-        active_sections = Section.query.join(Section.teacher_sections).filter_by(teacher_id=teacher_id).count()
-        total_students = Student.query.join(Student.section).join(Section.teacher_sections).filter_by(teacher_id=teacher_id).count()
+        active_groups = Group.query.join(Group.teacher_groups, Group.group_id == TeacherGroup.group_id).filter_by(teacher_id=teacher_id).count()
+        active_sections = Section.query.join(Section.teacher_sections, Section.section_id == TeacherSection.section_id).filter_by(teacher_id=teacher_id).count()
+        
+        section_students = (
+            db.session.query(Student.student_id)
+            .join(Group, Student.group_id == Group.group_id)
+            .join(Section, Group.section_id == Section.section_id)
+            .join(TeacherSection, Section.section_id == TeacherSection.section_id)
+            .filter(TeacherSection.teacher_id == teacher_id)
+        )
+        group_students = (
+            db.session.query(Student.student_id)
+            .join(Group, Student.group_id == Group.group_id)
+            .join(TeacherGroup, Group.group_id == TeacherGroup.group_id)
+            .filter(TeacherGroup.teacher_id == teacher_id)
+        )
+        
+        union_query = section_students.union(group_students).subquery()
+        total_students = db.session.query(func.count(func.distinct(union_query.c.student_id))).scalar()
+        
         new_students = Request.query.filter_by(status="new_student").join(Student).join(Section.teacher_sections).filter_by(teacher_id=teacher_id).count()
 
         return jsonify({

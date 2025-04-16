@@ -9,7 +9,7 @@ class Request(BaseModel):
     reason = db.Column(db.Text, nullable=False)
     
     change_group_requests = db.relationship('ChangeGroupRequest', backref='request', lazy=True)
-    section_change_requests = db.relationship('SectionChangeRequest', backref='request', lazy=True)
+    change_section_requests = db.relationship('ChangeSectionRequest', backref='request', lazy=True)
     swap_group_requests = db.relationship('SwapGroupRequest', backref='request', lazy=True)
     swap_section_requests = db.relationship('SwapSectionRequest', backref='request', lazy=True)
     

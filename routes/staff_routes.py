@@ -1,5 +1,7 @@
 from flask import Blueprint, jsonify, request
-from models.staff import Staff, User, Role
+from models.staff import Staff
+from models.user import User
+from models.role import Role
 from models import db
 from resources.validations import *
 

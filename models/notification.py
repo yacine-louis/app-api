@@ -1,4 +1,5 @@
 from .base import BaseModel, db
+from enum import Enum
 
 class Notification(BaseModel):
     __tablename__ = 'notifications'
@@ -22,3 +23,9 @@ class Notification(BaseModel):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
+    
+class NotificationType(str, Enum):
+     info = "info"
+     sucess = "success"
+     warning = "warning"
+     error = "error"

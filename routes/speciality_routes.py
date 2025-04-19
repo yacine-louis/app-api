@@ -43,7 +43,7 @@ def get_specialities():
         }
     })
 
-@speciality_bp.route('//<int:speciality_id>', methods = ["GET"])
+@speciality_bp.route('/<int:speciality_id>', methods = ["GET"])
 def get_speciality(speciality_id):
 
     speciality = Speciality.query.get(speciality_id)

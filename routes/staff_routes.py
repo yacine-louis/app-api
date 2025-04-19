@@ -1,6 +1,5 @@
 from flask import Blueprint, jsonify, request
-from models.staff import Staff, User, Role
-from models import db
+from models import db, Staff, User, Role
 from resources.validations import *
 
 from sqlalchemy import or_

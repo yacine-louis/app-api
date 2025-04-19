@@ -6,7 +6,7 @@ class SwapSectionRequest(BaseModel):
     swap_section_request_id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
     request_id = db.Column(db.Integer, db.ForeignKey('requests.request_id'), nullable=False)
     current_student_id = db.Column(db.Integer, db.ForeignKey('students.student_id'), nullable=False)
-    requested_student_id = db.Column(db.Integer, db.ForeignKey('students.student_id'), nullable=False)
+    requested_student_id = db.Column(db.Integer, db.ForeignKey('students.student_id'), nullable=True)
     
     def to_dict(self):
         return {

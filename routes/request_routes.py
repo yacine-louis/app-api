@@ -268,7 +268,7 @@ def create_change_request():
         "request": new_request.to_dict()
     }), 201
 
-@request_bp.route('/change/status' , methods = ["POST"])
+@request_bp.route('/change/status' , methods = ["PUT"])
 def review_request():
     data = request.get_json()
     

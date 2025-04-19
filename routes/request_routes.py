@@ -73,7 +73,7 @@ def get_requests():
     start_date = request.args.get("start_date", type=str)
     end_date = request.args.get("end_date", type=str)
     
-    requests = db.session.query(select(Request, Student)).join(Student, Request.student_id == Student.student_id)
+    requests = db.session.query(Request, Student).join(Student, Request.student_id == Student.student_id)
     
     
     if search_data:
